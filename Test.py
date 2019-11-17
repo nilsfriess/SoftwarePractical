@@ -1,9 +1,11 @@
-from ParticleFilter import ParticleFilter, Model
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from timeit import default_timer as timer
+from scipy.stats import multivariate_normal
+
+from ParticleFilter import ParticleFilter, Model
 
 class LotkaVolterra(Model):
     def __init__(cls, alpha, beta, gamma, delta, noise_sys = 0.1, noise_obs = 0.5):
@@ -15,6 +17,9 @@ class LotkaVolterra(Model):
         cls.noise_sys = noise_sys
         cls.noise_obs = noise_obs
 
+        cls.mu = [3,3]
+        cls.cov = 0.5 * np.eye(2)
+
     def dxdt(cls, t, x):
         """ Returns the RHS of the ODE modelling the preys (x[0]) and the predators x[1] """
         return np.array([ 
@@ -24,9 +29,11 @@ class LotkaVolterra(Model):
 
     def sample_prior(cls, n):
         """ Returns n samples of a 2D N(5,0.5) distribution, the prior on the predator and prey values """
-        mu = [3,3]
-        cov = 0.5 * np.eye(2)
-        return np.random.multivariate_normal(mu, cov, n)
+        return np.random.multivariate_normal(cls.mu, cls.cov, n)
+
+    def pdf_prior(cls, x, y):
+        rv = multivariate_normal(cls.mu, cls.cov)
+        return rv.pdf(x,y)
 
     def evolve(cls, x, t):
         """ Solve the lotka volterra equations for one time step """
@@ -79,68 +86,47 @@ def plot(obs, history):
     # Compute sample mean, variance and 95%-confidence interval
     particles_means = dict()
     particles_means["preys"] = np.array([])
-    particles_means["predators"] = np.array([])
-
-    preys_std = np.array([])
 
     for particles,weights in zip(history["particles"], history["weights"]):
         mean = np.average(particles[:,0], weights=weights)
         particles_means["preys"] = np.append(particles_means["preys"], mean)
 
-        preys_std = np.sqrt(np.append(preys_std,  np.average((particles[:,0] - mean)**2)))
-        # particles_means["predators"] = np.append(particles_means["predators"], np.average(particles[:,1], weights=weights))
-    
-    conf_upper = particles_means["preys"] + 1.96*preys_std/np.sqrt(len(history["particles"][0]))
-    conf_lower = particles_means["preys"] - 1.96*preys_std/np.sqrt(len(history["particles"][0]))
+    conf = np.array([0,0])
+    for i in range(len(history["particles"])):
+        # Compute confidence interval
+        conf = np.vstack([conf, np.percentile(history["particles"][i][:,0], [2.5, 97.5])])
+
+    conf = np.delete(conf, (0), axis=0)
 
     plt.plot(obs["timeobs"], particles_means["preys"], '-yo', label="Simulated preys")
-    plt.fill_between(obs["timeobs"], conf_upper, conf_lower, color='y', alpha=0.3)
-
-    # plt.plot(obs["timeobs"],   particles_means["predators"], '-go', label="Simulated predators")
+    plt.fill_between(obs["timeobs"], conf[:,0], conf[:,1], color='y', alpha=0.3)
 
     plt.title("Evolution of predator and prey")
     plt.xlabel("time")
     plt.legend()
-
-    # Phase plot
-    # plt.subplot(212)
-    # plt.plot(observations["exact"][:,0], observations["exact"][:,1])
-    # plt.title("Phase plot")
-    # plt.xlabel("Prey")
-    # plt.ylabel("Predator")
-
-    # # plot particles inside phase plot
-    # for particles in history["particles"]:
-    #     plt.scatter(particles[:,0], particles[:,1], c = np.random.random((1,3)))
     
     plt.show()
 
-         
-# setup model and create synthetic observations
-model = LotkaVolterra(alpha = 5/3, beta = 1/3, gamma = 5/3, delta = 1)
+model = LotkaVolterra(alpha = 7/3, beta = 1/3, gamma = 5/3, delta = 1)
 n_obs = 20
-observations = model.create_observations(n_obs, 0, 10)
+artificial_observations = model.create_observations(n_obs, 0, 10)
 
-N = 400
+N = 200
 pf = ParticleFilter(N = N, 
                     model = model,
                     save_history = True,
-                    resampling = "stratified"
+                    resampling = "systematic"
                     )
 
-# timesteps are all equal, it's sufficient to compute dt once
-dt = observations["timeobs"][1] - observations["timeobs"][0]
-# First observation is not used
+# timesteps are equidistant, it's sufficient to compute dt once
+dt = artificial_observations["timeobs"][1] - artificial_observations["timeobs"][0]
+
 start = timer()
-for i, (obsv, t) in enumerate(zip(observations["data"][1:], observations["timeobs"][1:])):
+# First observation is not used
+for i, (obsv, t) in enumerate(zip(artificial_observations["data"][1:], artificial_observations["timeobs"][1:])):
     pf.evolve(obsv, t, dt = dt)
 end = timer()
 print("Simulated " + str(N) + " particles using " + str(n_obs) + " observations in %.2f seconds." % (end - start))
-    
-plot(observations, pf.history)
 
-
-
-
-
+plot(artificial_observations, pf.history)
 
