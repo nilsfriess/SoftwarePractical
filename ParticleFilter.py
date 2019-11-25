@@ -25,7 +25,7 @@ class ParticleFilter(object):
         if type(cls.particles) is not np.ndarray:
             # make sure not to create np.array of np.array
             cls.particles = np.array(cls.particles)
-        cls.weights   = np.full(cls.N, 1 / cls.N)
+        cls.weights = np.full(cls.N, 1.0 / cls.N)
 
         if cls.save_history:
             cls.history = dict()
@@ -36,15 +36,29 @@ class ParticleFilter(object):
         """ Evolve all particles using the observation obs and time t """
 
         # evolve particles
-        cls.particles = np.array([
-            cls.model.sample_transition(p, t, dt) for p in cls.particles
-        ])
 
-        # update weights
-        cls.weights = np.array([
-            weight * cls.model.observation_density(p, obs, t) 
-            for weight, p in zip(cls.weights, cls.particles)
-        ])
+        # If the model implements a bootstrap filter, the proposal is the transition density
+        if cls.model.is_bootstrap():
+            cls.particles = np.array([
+                cls.model.sample_transition(p, t, dt) for p in cls.particles
+            ])
+
+            # update weights
+            cls.weights = np.array([
+                weight * cls.model.observation_density(p, obs, t) 
+                for weight, p in zip(cls.weights, cls.particles)
+            ])
+
+        # otherwise, sample from the proposal
+        else:
+            particles_before = cls.particles
+            cls.particles = np.array([
+                cls.model.sample_proposal(p, t, dt) for p in cls.particles
+            ])
+
+            cls.weights = np.array([
+                weight * cls.model.observation_density(p, obs, t) * cls.model.transition_density(p_before, p, t, dt) / cls.model.proposal_density(p_before, p, t) for weight, p, p_before in zip(cls.weights, cls.particles, particles_before)
+            ])
 
         # normalise weights
         cls.weights /= cls.weights.sum()
@@ -103,4 +117,10 @@ class Model(ABC):
     @abstractmethod
     def observation_density(cls, x, y, t):
         """ Returns the probability that at time t the value of y is observed """
+        pass
+
+    @property
+    def is_bootstrap(self):
+        """ Returns true if the model implements a Bootstrap filter. Then also a method
+            sample_proposal(cls, x, t, dt) has to be implemented """
         pass
