@@ -111,7 +111,7 @@ model = LotkaVolterra(alpha = 7/3, beta = 1/3, gamma = 5/3, delta = 1)
 n_obs = 20
 artificial_observations = model.create_observations(n_obs, 0, 10)
 
-N = 200
+N = 600
 pf = ParticleFilter(N = N, 
                     model = model,
                     save_history = True,
